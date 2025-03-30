@@ -1,5 +1,9 @@
 ﻿using System.Text.Json.Serialization;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Serilog;
+using Soenneker.Extensions.Configuration;
+using Soenneker.Extensions.String;
 
 namespace Soenneker.Extensions.ServiceCollection;
 
@@ -13,6 +17,40 @@ public static class ServiceCollectionsExtension
     /// </summary>
     public static void AddControllersWithDefaultJsonOptions(this IServiceCollection services)
     {
-        services.AddControllers().AddJsonOptions(jsonOptions => { jsonOptions.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull; });
+        services.AddControllers()
+                .AddJsonOptions(jsonOptions => { jsonOptions.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull; });
+    }
+
+    public static void AddDefaultCorsPolicy(IServiceCollection services, IConfiguration configuration, bool signalR = false)
+    {
+        services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(builder =>
+            {
+                var origins = configuration.GetValueStrict<string>("CorsPolicy:Origins");
+                var methods = configuration.GetValueStrict<string>("CorsPolicy:Methods");
+
+                if (origins.HasContent())
+                    builder.WithOrigins(origins.Split(';'));
+                else
+                {
+                    Log.Error("CorsPolicy Origins was null, allowing any origin (insecure!)");
+                    builder.AllowAnyOrigin();
+                }
+
+                if (methods.HasContent())
+                    builder.WithMethods(methods.Split(","));
+                else
+                {
+                    Log.Error("CorsPolicy Methods was null, allowing any method types (insecure!)");
+                    builder.AllowAnyMethod();
+                }
+
+                if (signalR)
+                    builder.AllowCredentials();
+
+                builder.AllowAnyHeader();
+            });
+        });
     }
 }

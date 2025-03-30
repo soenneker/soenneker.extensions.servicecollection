@@ -45,4 +45,9 @@
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
 
+    <ItemGroup>
+      <PackageReference Include="Serilog" Version="4.2.1-dev-02352" />
+      <PackageReference Include="Soenneker.Extensions.Configuration" Version="3.0.656" />
+    </ItemGroup>
+
 </Project>
