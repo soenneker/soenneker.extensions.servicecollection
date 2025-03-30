@@ -3,7 +3,6 @@ using Asp.Versioning;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
-using Soenneker.Extensions.Configuration;
 using Soenneker.Extensions.String;
 
 namespace Soenneker.Extensions.ServiceCollection;
@@ -28,8 +27,8 @@ public static class ServiceCollectionsExtension
         {
             options.AddDefaultPolicy(builder =>
             {
-                var origins = configuration.GetValueStrict<string>("CorsPolicy:Origins");
-                var methods = configuration.GetValueStrict<string>("CorsPolicy:Methods");
+                var origins = configuration.GetValue<string>("CorsPolicy:Origins");
+                var methods = configuration.GetValue<string>("CorsPolicy:Methods");
 
                 if (origins.HasContent())
                     builder.WithOrigins(origins.Split(';'));
