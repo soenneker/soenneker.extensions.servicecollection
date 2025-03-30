@@ -1,4 +1,5 @@
 ﻿using System.Text.Json.Serialization;
+using Asp.Versioning;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
@@ -21,7 +22,7 @@ public static class ServiceCollectionsExtension
                 .AddJsonOptions(jsonOptions => { jsonOptions.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull; });
     }
 
-    public static void AddDefaultCorsPolicy(IServiceCollection services, IConfiguration configuration, bool signalR = false)
+    public static void AddDefaultCorsPolicy(this IServiceCollection services, IConfiguration configuration, bool signalR = false)
     {
         services.AddCors(options =>
         {
@@ -52,5 +53,16 @@ public static class ServiceCollectionsExtension
                 builder.AllowAnyHeader();
             });
         });
+    }
+
+    public static void ConfigureVersioning(this IServiceCollection services)
+    {
+        services.AddApiVersioning(o =>
+            {
+                o.DefaultApiVersion = new ApiVersion(1, 0);
+                o.ApiVersionReader = new HeaderApiVersionReader("api-version");
+                o.AssumeDefaultVersionWhenUnspecified = true;
+            }
+        );
     }
 }
