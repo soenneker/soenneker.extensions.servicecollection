@@ -51,7 +51,7 @@
     <ItemGroup>
         <PackageReference Include="Asp.Versioning.Mvc" Version="8.1.0" />
         <PackageReference Include="Serilog" Version="4.3.0" />
-        <PackageReference Include="Soenneker.Extensions.Configuration" Version="3.0.724" />
+        <PackageReference Include="Soenneker.Extensions.Configuration" Version="3.0.725" />
     </ItemGroup>
 
 </Project>
