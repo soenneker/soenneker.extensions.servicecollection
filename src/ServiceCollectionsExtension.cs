@@ -1,10 +1,11 @@
-﻿using Asp.Versioning;
+using Asp.Versioning;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Soenneker.Extensions.String;
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json.Serialization;
 
@@ -34,7 +35,30 @@ public static class ServiceCollectionsExtension
                 var methods = configuration.GetValue<string>("CorsPolicy:Methods");
 
                 if (origins.HasContent())
-                    builder.WithOrigins(origins.Split(';'));
+                {
+                    // Parse semicolon-separated origins manually to avoid Split allocation
+                    ReadOnlySpan<char> originsSpan = origins.AsSpan();
+                    int semicolonCount = 0;
+                    for (var i = 0; i < originsSpan.Length; i++)
+                    {
+                        if (originsSpan[i] == ';')
+                            semicolonCount++;
+                    }
+                    var originsList = new List<string>(semicolonCount + 1);
+                    var start = 0;
+                    for (var i = 0; i < originsSpan.Length; i++)
+                    {
+                        if (originsSpan[i] == ';')
+                        {
+                            if (i > start)
+                                originsList.Add(originsSpan.Slice(start, i - start).Trim().ToString());
+                            start = i + 1;
+                        }
+                    }
+                    if (start < originsSpan.Length)
+                        originsList.Add(originsSpan[start..].Trim().ToString());
+                    builder.WithOrigins(originsList);
+                }
                 else
                 {
                     Log.Error("CorsPolicy Origins was null, allowing any origin (insecure!)");
@@ -42,7 +66,30 @@ public static class ServiceCollectionsExtension
                 }
 
                 if (methods.HasContent())
-                    builder.WithMethods(methods.Split(","));
+                {
+                    // Parse comma-separated methods manually to avoid Split allocation
+                    ReadOnlySpan<char> methodsSpan = methods.AsSpan();
+                    int commaCount = 0;
+                    for (var i = 0; i < methodsSpan.Length; i++)
+                    {
+                        if (methodsSpan[i] == ',')
+                            commaCount++;
+                    }
+                    var methodsList = new List<string>(commaCount + 1);
+                    var start = 0;
+                    for (var i = 0; i < methodsSpan.Length; i++)
+                    {
+                        if (methodsSpan[i] == ',')
+                        {
+                            if (i > start)
+                                methodsList.Add(methodsSpan.Slice(start, i - start).Trim().ToString());
+                            start = i + 1;
+                        }
+                    }
+                    if (start < methodsSpan.Length)
+                        methodsList.Add(methodsSpan[start..].Trim().ToString());
+                    builder.WithMethods(methodsList);
+                }
                 else
                 {
                     Log.Error("CorsPolicy Methods was null, allowing any method types (insecure!)");
