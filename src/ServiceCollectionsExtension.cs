@@ -5,9 +5,9 @@ using Serilog;
 using Soenneker.Extensions.String;
 using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json.Serialization;
+using Soenneker.Extensions.Spans.Readonly.Chars;
 
 namespace Soenneker.Extensions.ServiceCollection;
 
@@ -16,13 +16,19 @@ namespace Soenneker.Extensions.ServiceCollection;
 /// </summary>
 public static class ServiceCollectionsExtension
 {
+    private const string _defaultArrClientCertHeader = "X-ARR-ClientCert";
+    private const string _apiVersionHeaderName = "api-version";
+
     /// <summary>
     /// Adds json serializer options
     /// </summary>
     public static void AddControllersWithDefaultJsonOptions(this IServiceCollection services)
     {
         services.AddControllers()
-                .AddJsonOptions(jsonOptions => { jsonOptions.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull; });
+                .AddJsonOptions(jsonOptions =>
+                {
+                    jsonOptions.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+                });
     }
 
     public static void AddDefaultCorsPolicy(this IServiceCollection services, IConfiguration configuration, bool signalR = false)
@@ -31,75 +37,42 @@ public static class ServiceCollectionsExtension
         {
             options.AddDefaultPolicy(builder =>
             {
-                var origins = configuration.GetValue<string>("CorsPolicy:Origins");
-                var methods = configuration.GetValue<string>("CorsPolicy:Methods");
+                string[]? originArray = configuration.GetValue<string>("CorsPolicy:Origins")
+                                                     .SplitTrimmedNonEmpty(';');
+                string[]? methodArray = configuration.GetValue<string>("CorsPolicy:Methods")
+                                                     .SplitTrimmedNonEmpty(',');
 
-                if (origins.HasContent())
+                services.AddCors(options =>
                 {
-                    // Parse semicolon-separated origins manually to avoid Split allocation
-                    ReadOnlySpan<char> originsSpan = origins.AsSpan();
-                    int semicolonCount = 0;
-                    for (var i = 0; i < originsSpan.Length; i++)
+                    options.AddDefaultPolicy(builder =>
                     {
-                        if (originsSpan[i] == ';')
-                            semicolonCount++;
-                    }
-                    var originsList = new List<string>(semicolonCount + 1);
-                    var start = 0;
-                    for (var i = 0; i < originsSpan.Length; i++)
-                    {
-                        if (originsSpan[i] == ';')
+                        if (originArray is { Length: > 0 })
                         {
-                            if (i > start)
-                                originsList.Add(originsSpan.Slice(start, i - start).Trim().ToString());
-                            start = i + 1;
+                            builder.WithOrigins(originArray);
                         }
-                    }
-                    if (start < originsSpan.Length)
-                        originsList.Add(originsSpan[start..].Trim().ToString());
-                    builder.WithOrigins(originsList);
-                }
-                else
-                {
-                    Log.Error("CorsPolicy Origins was null, allowing any origin (insecure!)");
-                    builder.AllowAnyOrigin();
-                }
-
-                if (methods.HasContent())
-                {
-                    // Parse comma-separated methods manually to avoid Split allocation
-                    ReadOnlySpan<char> methodsSpan = methods.AsSpan();
-                    int commaCount = 0;
-                    for (var i = 0; i < methodsSpan.Length; i++)
-                    {
-                        if (methodsSpan[i] == ',')
-                            commaCount++;
-                    }
-                    var methodsList = new List<string>(commaCount + 1);
-                    var start = 0;
-                    for (var i = 0; i < methodsSpan.Length; i++)
-                    {
-                        if (methodsSpan[i] == ',')
+                        else
                         {
-                            if (i > start)
-                                methodsList.Add(methodsSpan.Slice(start, i - start).Trim().ToString());
-                            start = i + 1;
+                            Log.Error("CorsPolicy Origins missing/empty after parsing, allowing any origin (insecure!)");
+                            builder.AllowAnyOrigin();
                         }
-                    }
-                    if (start < methodsSpan.Length)
-                        methodsList.Add(methodsSpan[start..].Trim().ToString());
-                    builder.WithMethods(methodsList);
-                }
-                else
-                {
-                    Log.Error("CorsPolicy Methods was null, allowing any method types (insecure!)");
-                    builder.AllowAnyMethod();
-                }
 
-                if (signalR)
-                    builder.AllowCredentials();
+                        if (methodArray is { Length: > 0 })
+                        {
+                            builder.WithMethods(methodArray);
+                        }
+                        else
+                        {
+                            Log.Error("CorsPolicy Methods missing/empty after parsing, allowing any method types (insecure!)");
+                            builder.AllowAnyMethod();
+                        }
 
-                builder.AllowAnyHeader();
+                        // Note: AllowCredentials() + AllowAnyOrigin() is invalid at runtime in ASP.NET Core.
+                        if (signalR)
+                            builder.AllowCredentials();
+
+                        builder.AllowAnyHeader();
+                    });
+                });
             });
         });
     }
@@ -109,7 +82,7 @@ public static class ServiceCollectionsExtension
         services.AddApiVersioning(o =>
         {
             o.DefaultApiVersion = new ApiVersion(1, 0);
-            o.ApiVersionReader = new HeaderApiVersionReader("api-version");
+            o.ApiVersionReader = new HeaderApiVersionReader(_apiVersionHeaderName);
             o.AssumeDefaultVersionWhenUnspecified = true;
         });
     }
@@ -117,25 +90,36 @@ public static class ServiceCollectionsExtension
     /// <summary>
     /// Adds certificate forwarding that reads a base64-encoded DER cert from a header (default: "X-ARR-ClientCert").
     /// </summary>
-    public static IServiceCollection AddArrClientCertForwarding(this IServiceCollection services, string headerName = "X-ARR-ClientCert")
+    public static IServiceCollection AddArrClientCertForwarding(this IServiceCollection services, string headerName = _defaultArrClientCertHeader)
     {
         return services.AddCertificateForwarding(o =>
         {
             o.CertificateHeader = headerName;
-            o.HeaderConverter = headerValue =>
+
+            o.HeaderConverter = static headerValue =>
             {
                 if (headerValue.IsNullOrWhiteSpace())
-                    return null!;
+                    return null;
 
-                int max = checked(headerValue.Length * 3 / 4);
-                byte[] rented = ArrayPool<byte>.Shared.Rent(max);
+                // Exact-ish max decoded length:
+                // (len/4)*3 minus padding (0..2). Handles typical "=" / "==" endings.
+                int len = headerValue.Length;
+                int padding = (len != 0 && headerValue[len - 1] == '=')
+                    ? (len > 1 && headerValue[len - 2] == '=' ? 2 : 1)
+                    : 0;
+
+                int maxDecoded = (len / 4 * 3) - padding;
+                if (maxDecoded <= 0)
+                    return null;
+
+                byte[] rented = ArrayPool<byte>.Shared.Rent(maxDecoded);
 
                 try
                 {
-                    if (!Convert.TryFromBase64String(headerValue, rented, out int _))
-                        return null!;
+                    if (!Convert.TryFromBase64String(headerValue, rented, out int written) || written <= 0)
+                        return null;
 
-                    return X509CertificateLoader.LoadCertificate(rented);
+                    return X509CertificateLoader.LoadCertificate(rented.AsSpan(0, written));
                 }
                 finally
                 {
