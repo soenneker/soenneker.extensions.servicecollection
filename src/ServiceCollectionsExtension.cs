@@ -7,7 +7,6 @@ using System;
 using System.Buffers;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json.Serialization;
-using Soenneker.Extensions.Spans.Readonly.Chars;
 
 namespace Soenneker.Extensions.ServiceCollection;
 
@@ -33,46 +32,48 @@ public static class ServiceCollectionsExtension
 
     public static void AddDefaultCorsPolicy(this IServiceCollection services, IConfiguration configuration, bool signalR = false)
     {
+        var originsRaw = configuration.GetValue<string?>("CorsPolicy:Origins");
+        var methodsRaw = configuration.GetValue<string?>("CorsPolicy:Methods");
+
+        string[]? originArray = originsRaw?.SplitTrimmedNonEmpty(';');
+        string[]? methodArray = methodsRaw?.SplitTrimmedNonEmpty(',');
+
         services.AddCors(options =>
         {
             options.AddDefaultPolicy(builder =>
             {
-                string[]? originArray = configuration.GetValue<string>("CorsPolicy:Origins")
-                                                     .SplitTrimmedNonEmpty(';');
-                string[]? methodArray = configuration.GetValue<string>("CorsPolicy:Methods")
-                                                     .SplitTrimmedNonEmpty(',');
+                bool hasOrigins = originArray is { Length: > 0 };
+                bool hasMethods = methodArray is { Length: > 0 };
 
-                services.AddCors(options =>
+                if (signalR)
                 {
-                    options.AddDefaultPolicy(builder =>
+                    // SignalR + credentials requires explicit origins (no AllowAnyOrigin).
+                    if (!hasOrigins)
+                        throw new InvalidOperationException("CorsPolicy:Origins must be configured when signalR=true (credentials require explicit origins).");
+
+                    builder.WithOrigins(originArray!)
+                           .AllowCredentials();
+                }
+                else
+                {
+                    if (hasOrigins)
+                        builder.WithOrigins(originArray!);
+                    else
                     {
-                        if (originArray is { Length: > 0 })
-                        {
-                            builder.WithOrigins(originArray);
-                        }
-                        else
-                        {
-                            Log.Error("CorsPolicy Origins missing/empty after parsing, allowing any origin (insecure!)");
-                            builder.AllowAnyOrigin();
-                        }
+                        Log.Error("CorsPolicy Origins missing/empty after parsing, allowing any origin (insecure!)");
+                        builder.AllowAnyOrigin();
+                    }
+                }
 
-                        if (methodArray is { Length: > 0 })
-                        {
-                            builder.WithMethods(methodArray);
-                        }
-                        else
-                        {
-                            Log.Error("CorsPolicy Methods missing/empty after parsing, allowing any method types (insecure!)");
-                            builder.AllowAnyMethod();
-                        }
+                if (hasMethods)
+                    builder.WithMethods(methodArray!);
+                else
+                {
+                    Log.Error("CorsPolicy Methods missing/empty after parsing, allowing any method types (insecure!)");
+                    builder.AllowAnyMethod();
+                }
 
-                        // Note: AllowCredentials() + AllowAnyOrigin() is invalid at runtime in ASP.NET Core.
-                        if (signalR)
-                            builder.AllowCredentials();
-
-                        builder.AllowAnyHeader();
-                    });
-                });
+                builder.AllowAnyHeader();
             });
         });
     }
@@ -104,11 +105,11 @@ public static class ServiceCollectionsExtension
                 // Exact-ish max decoded length:
                 // (len/4)*3 minus padding (0..2). Handles typical "=" / "==" endings.
                 int len = headerValue.Length;
-                int padding = (len != 0 && headerValue[len - 1] == '=')
-                    ? (len > 1 && headerValue[len - 2] == '=' ? 2 : 1)
+                int padding = len != 0 && headerValue[len - 1] == '='
+                    ? len > 1 && headerValue[len - 2] == '=' ? 2 : 1
                     : 0;
 
-                int maxDecoded = (len / 4 * 3) - padding;
+                int maxDecoded = len / 4 * 3 - padding;
                 if (maxDecoded <= 0)
                     return null;
 
