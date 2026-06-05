@@ -30,6 +30,12 @@ public static class ServiceCollectionsExtension
                 });
     }
 
+    /// <summary>
+    /// Adds default cors policy.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configuration">The configuration.</param>
+    /// <param name="signalR">The signal r.</param>
     public static void AddDefaultCorsPolicy(this IServiceCollection services, IConfiguration configuration, bool signalR = false)
     {
         var originsRaw = configuration.GetValue<string?>("CorsPolicy:Origins");
@@ -78,6 +84,10 @@ public static class ServiceCollectionsExtension
         });
     }
 
+    /// <summary>
+    /// Configures versioning.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
     public static void ConfigureVersioning(this IServiceCollection services)
     {
         services.AddApiVersioning(o =>
