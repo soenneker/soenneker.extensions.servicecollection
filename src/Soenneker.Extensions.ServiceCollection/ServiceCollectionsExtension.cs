@@ -31,11 +31,11 @@ public static class ServiceCollectionsExtension
     }
 
     /// <summary>
-    /// Adds default cors policy.
+    /// Registers the library's default CORS policy from configuration, optionally enabling SignalR-compatible credentials.
     /// </summary>
-    /// <param name="services">The service collection.</param>
-    /// <param name="configuration">The configuration.</param>
-    /// <param name="signalR">The signal r.</param>
+    /// <param name="services">The service collection to update.</param>
+    /// <param name="configuration">The configuration containing allowed CORS origins.</param>
+    /// <param name="signalR">True to allow credentials for SignalR scenarios.</param>
     public static void AddDefaultCorsPolicy(this IServiceCollection services, IConfiguration configuration, bool signalR = false)
     {
         var originsRaw = configuration.GetValue<string?>("CorsPolicy:Origins");
@@ -101,6 +101,7 @@ public static class ServiceCollectionsExtension
     /// <summary>
     /// Adds certificate forwarding that reads a base64-encoded DER cert from a header (default: "X-ARR-ClientCert").
     /// </summary>
+    /// <returns>Adds certificate forwarding that reads a base64-encoded DER cert from a header (default: "X-ARR-ClientCert").</returns>
     public static IServiceCollection AddArrClientCertForwarding(this IServiceCollection services, string headerName = _defaultArrClientCertHeader)
     {
         return services.AddCertificateForwarding(o =>
