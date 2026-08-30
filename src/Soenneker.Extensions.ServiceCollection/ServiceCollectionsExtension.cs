@@ -1,7 +1,6 @@
 using Asp.Versioning;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Serilog;
 using Soenneker.Extensions.String;
 using System;
 using System.Buffers;
@@ -51,33 +50,33 @@ public static class ServiceCollectionsExtension
                 bool hasOrigins = originArray is { Length: > 0 };
                 bool hasMethods = methodArray is { Length: > 0 };
 
+                if (!hasOrigins)
+                    throw new InvalidOperationException("CorsPolicy:Origins must contain at least one origin.");
+
+                if (!hasMethods)
+                    throw new InvalidOperationException("CorsPolicy:Methods must contain at least one method.");
+
+                bool allowAnyOrigin = originArray!.Length == 1 && originArray[0] == "*";
+                bool allowAnyMethod = methodArray!.Length == 1 && methodArray[0] == "*";
+
                 if (signalR)
                 {
                     // SignalR + credentials requires explicit origins (no AllowAnyOrigin).
-                    if (!hasOrigins)
-                        throw new InvalidOperationException("CorsPolicy:Origins must be configured when signalR=true (credentials require explicit origins).");
+                    if (allowAnyOrigin)
+                        throw new InvalidOperationException("CorsPolicy:Origins cannot be '*' when signalR=true because credentials require explicit origins.");
 
-                    builder.WithOrigins(originArray!)
+                    builder.WithOrigins(originArray)
                            .AllowCredentials();
                 }
+                else if (allowAnyOrigin)
+                    builder.AllowAnyOrigin();
                 else
-                {
-                    if (hasOrigins)
-                        builder.WithOrigins(originArray!);
-                    else
-                    {
-                        Log.Error("CorsPolicy Origins missing/empty after parsing, allowing any origin (insecure!)");
-                        builder.AllowAnyOrigin();
-                    }
-                }
+                    builder.WithOrigins(originArray);
 
-                if (hasMethods)
-                    builder.WithMethods(methodArray!);
-                else
-                {
-                    Log.Error("CorsPolicy Methods missing/empty after parsing, allowing any method types (insecure!)");
+                if (allowAnyMethod)
                     builder.AllowAnyMethod();
-                }
+                else
+                    builder.WithMethods(methodArray);
 
                 builder.AllowAnyHeader();
             });
@@ -91,11 +90,12 @@ public static class ServiceCollectionsExtension
     public static void ConfigureVersioning(this IServiceCollection services)
     {
         services.AddApiVersioning(o =>
-        {
-            o.DefaultApiVersion = new ApiVersion(1, 0);
-            o.ApiVersionReader = new HeaderApiVersionReader(_apiVersionHeaderName);
-            o.AssumeDefaultVersionWhenUnspecified = true;
-        });
+                {
+                    o.DefaultApiVersion = new ApiVersion(1, 0);
+                    o.ApiVersionReader = new HeaderApiVersionReader(_apiVersionHeaderName);
+                    o.AssumeDefaultVersionWhenUnspecified = true;
+                })
+                .AddMvc();
     }
 
     /// <summary>
