@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Asp.Versioning;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,7 @@ public static class ServiceCollectionsExtension
     /// <summary>
     /// Adds json serializer options
     /// </summary>
+    [RequiresUnreferencedCode("ASP.NET Core MVC does not support trimming or Native AOT.")]
     public static void AddControllersWithDefaultJsonOptions(this IServiceCollection services)
     {
         services.AddControllers()
